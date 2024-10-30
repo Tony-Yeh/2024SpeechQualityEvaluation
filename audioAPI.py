@@ -2,7 +2,6 @@ import os
 import sys
 import re
 import base64
-import requests
 import argparse
 from openai import OpenAI
 from tqdm import tqdm
