@@ -1,4 +1,5 @@
 import os
+import sys
 import re
 import base64
 import requests
@@ -12,7 +13,7 @@ def parse_args():
         "--model",
         type=str,
         default="gpt-4o-audio-preview",
-        help="Here listed some models that can accept audio input: https://platform.openai.com/docs/models/gpt-4o-realtime",
+        help="Here lists some models that can accept audio input: https://platform.openai.com/docs/models/gpt-4o-realtime",
     )
     parser.add_argument(
         "--high_quality_path",
@@ -42,6 +43,17 @@ def parse_args():
     args = parser.parse_args()
     return args
 
+def find_scores(file_path, search_str):
+    system_id = search_str.split('-')[-1].split('.')[0]
+    with open(file_path, 'r') as file:
+        for line in file:
+            if line.startswith(system_id):
+                _, sig, bak, ovr = line.strip().split(',')
+                return float(sig), float(bak), float(ovr)
+    print("[ERROR]: Data not found in provided text file.")
+    sys.exit(1)
+
+
 client = OpenAI()
 
 args = parse_args()
@@ -57,6 +69,8 @@ with open(low_quality_path, "rb") as audio_file:
 
 high_quality_encoded_string = base64.b64encode(high_wav_data).decode('utf-8')
 low_quality_encoded_string = base64.b64encode(low_wav_data).decode('utf-8')
+SIG_high, BAK_high, OVR_high = find_scores(args.groundTruth_path, high_quality_path)
+SIG_low, BAK_low, OVR_low = find_scores(args.groundTruth_path, low_quality_path)
 
 with open(args.output_path, "w") as result:
     result.write("systems,SIG,BAK,OVR\n")
@@ -80,7 +94,7 @@ with open(args.output_path, "w") as result:
                                 "role": "user",
                                 "content": [{
                                         "type": "text",
-                                        "text": "Example 1: This is a Low Quality Audio, its score is\nSIG: [2.60], BAK: [1.00], OVRL: [1.40]"
+                                        "text": f"Example 1: This is a Low Quality Audio, its score is\nSIG: [{SIG_low}], BAK: [{BAK_low}], OVR: [{OVR_low}]"
                                     },
                                     {
                                         "type": "input_audio",
@@ -91,7 +105,7 @@ with open(args.output_path, "w") as result:
                                     },
                                     {
                                         "type": "text",
-                                        "text": "Example 2: This is a High Quality Audio, its score is\nSIG: [4.80], BAK: [4.80], OVRL: [5]"
+                                        "text": f"Example 2: This is a High Quality Audio, its score is\nSIG: [{SIG_high}], BAK: [{BAK_high}], OVR: [{OVR_high}]"
                                     },
                                     {
                                         "type": "input_audio",
@@ -111,7 +125,7 @@ with open(args.output_path, "w") as result:
                     5. For background noise intrusiveness, your answer should also be scored from 1 to 5, where 1 means the background is very noisy and 5 means very quiet.
                     6. The overall quality is the overall quality of the speech sample affected by the above two factors; your answer should also be scored from 1 to 5, 1 indicating poor quality and 5 indicating excellent quality.
                     7. Your score should use decimal values up to two decimal places.
-                    8. Your answer should be in the format "SIG: [X], BAK: [Y], OVRL: [Z]", where X is the score you give about speech signal quality, Y is the score about background noise, and Z is the overall score. Wrap the score in square brackets. You don't need to provide any reason.\n\n"""
+                    8. Your answer should be in the format "SIG: [X], BAK: [Y], OVR: [Z]", where X is the score you give about speech signal quality, Y is the score about background noise, and Z is the overall score. Wrap the score in square brackets. You don't need to provide any reason.\n\n"""
                                     },
                                     {
                                         "type": "input_audio",
