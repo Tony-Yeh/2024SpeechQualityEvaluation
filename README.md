@@ -4,7 +4,7 @@ The project utilizes the latest gpt-4o-audio-preview model to evaluate the speec
 ## Install Packages
 Install requirements in your virtual environment.
 ```sh
-pip install -r requirements
+pip install -r requirements.txt
 ```
 
 ## Run the Code
