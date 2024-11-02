@@ -1,4 +1,5 @@
 import os
+import time
 import sys
 import re
 import base64
@@ -15,14 +16,14 @@ def parse_args():
         help="Here lists some models that can accept audio input: https://platform.openai.com/docs/models/gpt-4o-realtime",
     )
     parser.add_argument(
-        "--high_quality_path",
-        type=str,
-        default=None,
+        "--shot_list",
+        nargs="+",
+        help="List of WAV files as few-shot learning."
     )
     parser.add_argument(
-        "--low_quality_path",
-        type=str,
-        default=None,
+        "--prompt_list",
+        nargs="+",
+        help="List of descriptions for each WAV files you provided."
     )
     parser.add_argument(
         "--groundTruth_path",
@@ -57,19 +58,22 @@ client = OpenAI()
 
 args = parse_args()
 
-high_quality_path = args.high_quality_path
-with open(high_quality_path, "rb") as audio_file:
-    high_wav_data = audio_file.read()
-
+few_shot_examples = []
+for shot_path in args.shot_list:
+    with open(shot_path, "rb") as audio_file:
+        wav_data = audio_file.read()
+    encoded_string = base64.b64encode(wav_data).decode('utf-8')
+    SIG, BAK, OVR = find_scores(args.groundTruth_path, shot_path)
+    few_shot_examples.append({
+        "SIG": SIG,
+        "BAK": BAK,
+        "OVR": OVR,
+        "encoded_string": encoded_string
+    })
     
-low_quality_path = args.low_quality_path
-with open(low_quality_path, "rb") as audio_file:
-    low_wav_data = audio_file.read()
-
-high_quality_encoded_string = base64.b64encode(high_wav_data).decode('utf-8')
-low_quality_encoded_string = base64.b64encode(low_wav_data).decode('utf-8')
-SIG_high, BAK_high, OVR_high = find_scores(args.groundTruth_path, high_quality_path)
-SIG_low, BAK_low, OVR_low = find_scores(args.groundTruth_path, low_quality_path)
+few_shot_prompt = []
+for shot_prompt in args.prompt_list:
+    few_shot_prompt.append(shot_prompt)
 
 with open(args.output_path, "w") as result:
     result.write("systems,SIG,BAK,OVR\n")
@@ -82,42 +86,24 @@ with open(args.output_path, "w") as result:
                 wav_data = audio_file.read()
             encoded_string = base64.b64encode(wav_data).decode('utf-8')
 
+            few_shot_prompts = []
+            for i, example in enumerate(few_shot_examples, start=1):
+                few_shot_prompts.extend([
+                    {"type": "text", "text": f"Example {i}: {few_shot_prompt[i-1]} Its score is:\nSIG: [{example['SIG']}], BAK: [{example['BAK']}], OVR: [{example['OVR']}]"},
+                    {"type": "input_audio", "input_audio": {"data": example["encoded_string"], "format": "wav"}}
+                ])
+            
             while True:
                 try:
                     completion = client.chat.completions.create(
                         model=args.model,
-                        modalities=["text"],   # 輸出的形式，可以放參數"text", "audio"
-                        # audio={"voice": "alloy", "format": "wav"},    # audio 是 audio output 的參數
+                        modalities=["text"],
                         messages=[
-                            {
-                                "role": "user",
-                                "content": [{
-                                        "type": "text",
-                                        "text": f"Example 1: This is a Low Quality Audio, its score is\nSIG: [{SIG_low}], BAK: [{BAK_low}], OVR: [{OVR_low}]"
-                                    },
-                                    {
-                                        "type": "input_audio",
-                                        "input_audio": {
-                                            "data": low_quality_encoded_string,  # Replace with actual low-quality audio data
-                                            "format": "wav"
-                                        }
-                                    },
-                                    {
-                                        "type": "text",
-                                        "text": f"Example 2: This is a High Quality Audio, its score is\nSIG: [{SIG_high}], BAK: [{BAK_high}], OVR: [{OVR_high}]"
-                                    },
-                                    {
-                                        "type": "input_audio",
-                                        "input_audio": {
-                                            "data": high_quality_encoded_string,  # Replace with actual high-quality audio data
-                                            "format": "wav"
-                                        }
-                                    },
-                                    {
-                                        "type": "text",
-                                        "text": """
-                    The above examples show how the scale you should rate the speech samples. Please rate the quality of another given speech sample based on the following.
-                    1. You are an expert rater of speech quality. Remember that you are a very, very strict critic; you will not give out a high score (>4) easily unless the quality is very nice.
+                            {"role": "user", "content": few_shot_prompts + [
+                                {"type": "text", "text": """
+                    The above examples show how the scale you should rate the speech samples, the audio quality are ranging from great to poor.
+                    Please rate the quality of the below given speech sample based on the following.
+                    1. You are an expert rater of speech quality. Remember that you are a very, very strict critic, ***you can hear and focus on the details that others may not notice to***; you will not give out a high score easily unless the quality is very nice.
                     2. You will be given an audio sample of a person speaking in a possibly noisy environment.
                     3. Please listen to the audio and attend to the speech signal, the background noise, and the overall quality of the audio sample. Any existence of background noise decreases the score greatly.
                     4. For speech signal quality, your answer should be an overall score from 1 to 5, where 1 means the signal is distorted and 5 means the signal is very clear.
@@ -126,15 +112,8 @@ with open(args.output_path, "w") as result:
                     7. Your score should use decimal values up to two decimal places.
                     8. Your answer should be in the format "SIG: [X], BAK: [Y], OVR: [Z]", where X is the score you give about speech signal quality, Y is the score about background noise, and Z is the overall score. Wrap the score in square brackets. You don't need to provide any reason.\n\n"""
                                     },
-                                    {
-                                        "type": "input_audio",
-                                        "input_audio": {
-                                            "data": encoded_string,  # Your audio data here
-                                            "format": "wav"
-                                        }
-                                    }
-                                ]
-                            }
+                                {"type": "input_audio", "input_audio": {"data": encoded_string, "format": "wav"}}
+                            ]}
                         ]
                     )
                     # print(completion.usage)   # 計算當次的token count
@@ -152,6 +131,9 @@ with open(args.output_path, "w") as result:
                     float_values = [float(match) for match in matches]
                     x, y, z = float_values
                     result.write(f"{sound_name},{x},{y},{z}\n")
+                    
+                    print(f"{sound_name},{x},{y},{z}")
+                    
                     break
 
                 except (ValueError, IndexError) as e:
