@@ -86,8 +86,8 @@ with open(args.output_path, "w") as result:
                 try:
                     completion = client.chat.completions.create(
                         model=args.model,
-                        modalities=["text", "audio"],
-                        audio={"voice": "alloy", "format": "wav"},
+                        modalities=["text"],   # 輸出的形式，可以放參數"text", "audio"
+                        # audio={"voice": "alloy", "format": "wav"},    # audio 是 audio output 的參數
                         messages=[
                             {
                                 "role": "user",
@@ -137,8 +137,10 @@ with open(args.output_path, "w") as result:
                             }
                         ]
                     )
-                    input_string = completion.choices[0].message.audio.transcript
-                    matches = re.findall(r'\[([\d.-]+)\]', input_string)
+                    # print(completion.usage)   # 計算當次的token count
+
+                    output_string = completion.choices[0].message.content
+                    matches = re.findall(r'\[([\d.-]+)\]', output_string)
 
                     if (len(matches) != 3):
                         raise ValueError("Reply format not match")
